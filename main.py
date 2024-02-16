@@ -24,7 +24,8 @@ def filter_violent() -> dict:
     violent = {
         "murder": [
             "100",
-            "101" "102",
+            "101",
+            "102",
         ],
         "rape": [
             "200",
