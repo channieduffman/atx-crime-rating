@@ -20,7 +20,7 @@ It returns:
 
     [
         {
-            "murder": "6"
+            "murder": "8"
         },
         {
             "rape": "21"
@@ -29,7 +29,7 @@ It returns:
             "agg_robbery": "95"
         },
         {
-            "agg_assault": "835"
+            "agg_assault": "834"
         },
         {
             "sexual_assault": "40"
