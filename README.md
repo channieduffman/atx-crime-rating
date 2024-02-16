@@ -18,28 +18,26 @@ The above code will search for violent crimes reported in the 78704 zip code wit
 It returns:
 
 
-> ```
-[
-    {
-        "murder": "6"
-    },
-    {
-        "rape": "21"
-    },
-    {
-        "agg_robbery": "95"
-    },
-    {
-        "agg_assault": "835"
-    },
-    {
-        "sexual_assault": "40"
-    },
-    {
-        "kidnapping": "0"
-    },
-    {
-        "trafficking": "0"
-    }
-]
-```
+    [
+        {
+            "murder": "6"
+        },
+        {
+            "rape": "21"
+        },
+        {
+            "agg_robbery": "95"
+        },
+        {
+            "agg_assault": "835"
+        },
+        {
+            "sexual_assault": "40"
+        },
+        {
+            "kidnapping": "0"
+        },
+        {
+            "trafficking": "0"
+        }
+    ]
