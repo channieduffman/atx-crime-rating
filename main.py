@@ -1,114 +1,145 @@
+import asyncio
 from datetime import date
 from dateutil.relativedelta import relativedelta
 from fastapi import FastAPI
 import httpx
+from urllib.parse import quote
+
+import time
 
 
 app = FastAPI()
 
 
-# generate a formatted date cutoff for a SoQL query
-def make_cutoff(years: int):
+# generate a formatted date string for a SoQL query
+def make_cutoff(years: int) -> str:
     today = date.today()
     threshold = today - relativedelta(years=years)
-    th = threshold.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3]
+    th = threshold.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3]
     return th
 
 
-# generate URL query from dictionary and ignore missing keys
-def make_path(data: dict):
-    path = 'https://data.austintexas.gov/resource/fdj4-gpfu.json?'
-    
-    try:
-        zi = data['zip_code']
-        zip_code = f'&zip_code={zi}'
-        path += zip_code
-    except KeyError:
-        pass
+def filter_violent() -> dict:
 
-    try:
-        se = data['select']
-        select = f'&$select={se}'
-        path += select
-    except KeyError:
-        pass
+    violent = {
+        "murder": [
+            "100",
+            "101" "102",
+        ],
+        "rape": [
+            "200",
+            "202",
+            "203",
+            "204",
+            "206",
+            "207",
+        ],
+        "agg_robbery": [
+            "300",
+            "302",
+            "303",
+            "305",
+        ],
+        "agg_assault": [
+            "402",
+            "403",
+            "405",
+            "406",
+            "407",
+            "408",
+            "409",
+            "410",
+            "411",
+            # arson / assault with injury
+            "805",
+            "900",
+        ],
+        "sexual_assault": [
+            "1700",
+            "1701",
+            "1707",
+            "1708",
+            "1709",
+            "1710",
+            "1712",
+            "1714",
+            "1715",
+            "1716",
+            "1718",
+            "1719",
+            "1720",
+            "1721",
+            "1722",
+            "1724",
+        ],
+        "kidnapping": [
+            "2801",
+        ],
+        "trafficking": [
+            "4199",
+        ],
+    }
 
-    try:
-        cu = data['cutoff']
-        co = make_cutoff(cu)
-        cutoff = f'&$where=occ_date_time%20%3e%20%27{co}%27'
-        path += cutoff
-    except KeyError:
-        pass
+    queries = {}
 
-    try:
-        vi = data['violent']
-        if vi:
-            violent = f" AND ucr_code in("\
-                      f"'100', '101', '107', '400', '401', "\
-                      f"'200', '201', '202', '203', '204', '205', '206', '207', '208', "\
-                      f"'300', '301', '302', '303', '304', '305', "\
-                      f"'402', '403', '404', '405', '406', '407', '408', '409', '410', '411', "\
-                      f"'805', '900', '901', '902', '903', '906', '909', '910', '911', "\
-                      f"'1700', '1701', '1702', '1703', '1707', '1708', '1709', '1710', '1711', '1712', '1713', "\
-                      f"'1714', '1715', '1716', '1717', '1718', '1719', '1720', '1721', '1722', '1723', '1724', "\
-                      f"'2004', '2010', '2011', '2012', '2013', '2014', "\
-                      f"'2404', '2406', '2407', '2408', '2409', '2410', "\
-                      f"'2701', '2702', '2703', '2704', '2705', '2706', '2731', '2732', "\
-                      f"'2800', '2801', '2802', '2803', '2804', '2805', "\
-                      f"'4199')"
-            path += violent
-    except KeyError:
-        pass
+    for item in violent:
+        v = " AND ucr_code in("
+        for index, value in enumerate(violent[item]):
+            if index > 0 and index < len(violent[item]) - 1:
+                v = v + ", " + value
+            elif index == 0 and index == len(violent[item]) - 1:
+                v = v + value + ")"
+            elif index == len(violent[item]) - 1:
+                v = v + ", " + value + ")"
+            else:
+                v = v + value
+        queries[item] = quote(v)
 
-    try:
-        li = data['limit'] 
-        limit = f'&$limit={li}'
-        path += limit
-    except KeyError:
-        pass
+    return queries
 
+
+# generate URL query from dictionary
+def make_path(zc: int, co: str, tail: str | None) -> str:
+    path = "https://data.austintexas.gov/resource/fdj4-gpfu.json?"
+    select = f"$select=count(*)&zip_code={zc}"
+    where = f"&$where=occ_date_time%20%3E%20%27{co}%27"
+    path = path + select + where
+    if tail is not None:
+        path += tail
     return path
 
 
+# coroutine for launching requests asynchronously
+async def make_request(base: str, q: str, k: str):
+    async with httpx.AsyncClient() as client:
+        res = await client.get(base + q)
+        return {k: res.json()[0]["count"]}
+
+
+# gather make_request() coros
+async def make_requests(base: str, qs: dict):
+    return await asyncio.gather(*[make_request(base, qs[k], k) for k in qs])
+
+
+# return a breakdown of reported violent crimes
+@app.get("/{zc}/{cut}")
+async def count_violent(zc: int, cut: int):
+    co = make_cutoff(cut)
+    base = make_path(zc, co, None)
+    vq = filter_violent()
+    try:
+        results = await make_requests(base, vq)
+    except Exception as e:
+        results = e
+
+    return results
+
+
 # absolute crime report count over two years
-@app.get('/count/{zip}/{co}')
-def count_all(zip: int, co: int):
-    data = {
-        'zip_code': zip,
-        'select': 'count(incident_report_number)',
-        'cutoff': co, 
-    }
-    path = make_path(data)
+@app.get("/count/all/{zip}/{cut}")
+def count_all(zip: int, cut: int):
+    start = time.time()
+    co = make_cutoff(cut)
+    path = make_path(zip, co, None)
     response = httpx.get(path)
-    match response.status_code:
-        case 200:
-            r = response.json()[0]
-        case _:
-            r = {'status_code': response.status_code}
-    return r
-
-
-# return a count of 'violent' crimes
-@app.get('/count/violent/{zip}/{co}')
-def count_violent(zip: int, co: int):
-    data = {
-        'zip_code': zip,
-        'select': 'count(incident_report_number)',
-        'cutoff': co,
-        'violent': True,
-    }
-    path = make_path(data)
-    response = httpx.get(path)
-    match response.status_code:
-        case 200:
-            r = response.json()[0]
-        case _:
-            r = {'status_code': response.status_code}
-    return r
-
-
-@app.get('/')
-def landing():
-    data = {'message': 'append a zip code to url for crime count (last two years)'}
-    return data
+    return response.json(), time.time() - start
