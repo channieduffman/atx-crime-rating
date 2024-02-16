@@ -1,18 +1,45 @@
 # ATX Neighborhood Violence Rating API
 
+*This project uses data made accessible by the City of Austin through the Socrata Open Data API (SODA).*
 
-The aim of this project is to provide a set of API endpoints for returning a calculated safety rating for a given Austin, TX zip code. 
+The primary function of the API is to return a numerical breakdown of violent crimes reported in a given Austin zip code in a given timeframe. The crimes are queried by their corresponding UCR (Uniform Crime Reporting) codes. 
 
 
-### MVP
+## Usage
 
-The MVP returns a count of all violent crimes reported within the specified zip code over a specified timeframe. 
+Requests are made by appending a zip code and cutoff time (given in years ago) as URL parameters.
 
-Timeframes are given as integer values in units of years up to five.
+Example:
 
-Usage:
+> `domain.com/78704/2` 
 
-> `https://atxcrime.com/absolute/78731/2`
-> `https://atxcrime.com/absolute/violent/78731/2`
+The above code will search for violent crimes reported in the 78704 zip code within the last two years.
 
-The rating system will be implemented in the future.
+It returns:
+
+
+> ```
+[
+    {
+        "murder": "6"
+    },
+    {
+        "rape": "21"
+    },
+    {
+        "agg_robbery": "95"
+    },
+    {
+        "agg_assault": "835"
+    },
+    {
+        "sexual_assault": "40"
+    },
+    {
+        "kidnapping": "0"
+    },
+    {
+        "trafficking": "0"
+    }
+]
+
