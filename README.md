@@ -11,7 +11,7 @@ Requests are made by appending a zip code and cutoff time (given in years ago) a
 
 Example:
 
-    domain.com/78704/2 
+    https://domain.com/78704/2 
 
 The above code will search for violent crimes reported in the 78704 zip code within the last two years.
 
