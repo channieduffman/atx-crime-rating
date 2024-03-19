@@ -17,30 +17,18 @@ The above code will search for violent crimes reported in the 78704 zip code wit
 
 It returns:
 
-
-    [
-        {
-            "murder": "8"
-        },
-        {
-            "rape": "21"
-        },
-        {
-            "agg_robbery": "95"
-        },
-        {
-            "agg_assault": "834"
-        },
-        {
-            "sexual_assault": "40"
-        },
-        {
-            "kidnapping": "0"
-        },
-        {
-            "trafficking": "0"
+    {
+        "zip_code": "78704",
+        "number_of_years": "2",
+        "reported_violent_crime_count": "988",
+        "by_category": {
+            "murder": "7",
+            "rape": "21",
+            "aggravated_robbery": "92",
+            "aggravated_assault": "827",
+            "sexual_assault": "41"
         }
-    ]
+    }
 
 
 ## Definition Violent Crime

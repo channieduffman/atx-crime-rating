@@ -2,10 +2,9 @@ import asyncio
 from datetime import date
 from dateutil.relativedelta import relativedelta
 from fastapi import FastAPI
+from geopy.geocoders import Nominatim
 import httpx
 from urllib.parse import quote
-
-import time
 
 
 app = FastAPI()
@@ -19,8 +18,26 @@ def make_cutoff(years: int) -> str:
     return th
 
 
+# generate URL query 
+# assumes 'co' is properly formatted SoQL date string as defined by SODA
+def make_path(zc: int | None, co: str, tail: str | None) -> str:
+    path = "https://data.austintexas.gov/resource/fdj4-gpfu.json?"
+    select = f"$select=count(*)"
+    # zip code will be not be used for address search endpoint
+    if zc:
+        zip = f"&zip_code={zc}"
+        select += zip
+    where = f"&$where=occ_date_time%20%3E%20%27{co}%27"
+    path = path + select + where
+    # 'tail' allows for additional query params to be added
+    if tail:
+        path += tail
+    return path
+
+# create a dictionary of query strings for filtering violent crime
 def filter_violent() -> dict:
 
+    # UCR codes for violent crimes as defined by the FBI
     violent = {
         "murder": [
             "100",
@@ -35,13 +52,13 @@ def filter_violent() -> dict:
             "206",
             "207",
         ],
-        "agg_robbery": [
+        "aggravated_robbery": [
             "300",
             "302",
             "303",
             "305",
         ],
-        "agg_assault": [
+        "aggravated_assault": [
             "402",
             "403",
             "405",
@@ -51,8 +68,6 @@ def filter_violent() -> dict:
             "409",
             "410",
             "411",
-            # arson / assault with injury
-            "805",
             "900",
         ],
         "sexual_assault": [
@@ -72,17 +87,12 @@ def filter_violent() -> dict:
             "1721",
             "1722",
             "1724",
-        ],
-        "kidnapping": [
-            "2801",
-        ],
-        "trafficking": [
-            "4199",
-        ],
+        ]
     }
 
     queries = {}
 
+    # add specific codes to query string and format
     for item in violent:
         v = " AND ucr_code in("
         for index, value in enumerate(violent[item]):
@@ -98,19 +108,24 @@ def filter_violent() -> dict:
 
     return queries
 
+import re
 
-# generate URL query from dictionary
-def make_path(zc: int, co: str, tail: str | None) -> str:
-    path = "https://data.austintexas.gov/resource/fdj4-gpfu.json?"
-    select = f"$select=count(*)&zip_code={zc}"
-    where = f"&$where=occ_date_time%20%3E%20%27{co}%27"
-    path = path + select + where
-    if tail is not None:
-        path += tail
-    return path
+def validate_address(address):
+    # Regular expression to match a typical physical address pattern
+    pattern = r'^\d+\s+[\w\s]+\s+\w+[\.,]?\s+\w+\s*,?\s*\w*\s*,?\s*\w+\s*\d*,?\s*\w*$'
+    
+    # Compile the regular expression
+    regex = re.compile(pattern)
+    
+    # Check if the address matches the pattern
+    if regex.match(address):
+        return True
+    else:
+        return False
 
 
 # coroutine for launching requests asynchronously
+# returns a single key value pair as dictionary
 async def make_request(base: str, q: str, k: str):
     async with httpx.AsyncClient() as client:
         res = await client.get(base + q)
@@ -119,28 +134,72 @@ async def make_request(base: str, q: str, k: str):
 
 # gather make_request() coros
 async def make_requests(base: str, qs: dict):
+    # returns a list of dictionaries each with a single key: value pair
     return await asyncio.gather(*[make_request(base, qs[k], k) for k in qs])
 
 
 # return a breakdown of reported violent crimes
-@app.get("/{zc}/{cut}")
-async def count_violent(zc: int, cut: int):
-    co = make_cutoff(cut)
-    base = make_path(zc, co, None)
-    vq = filter_violent()
+@app.get("/zipcode/{zc}/{cut}")
+async def get_violent(zc: int, cut: int):
     try:
+        co = make_cutoff(cut)
+        base = make_path(zc, co, None)
+        # generate dict of queries to launch with make_requests()
+        vq = filter_violent()
         results = await make_requests(base, vq)
+        categories = {}
+        for res in results:
+            k, v = next(iter(res.items()))
+            categories[k] = v
+        data = {
+            "zip_code": str(zc),
+            "number_of_years": str(cut),
+            "reported_violent_crime_count": str(sum([int(categories[k]) for k in categories])),
+            "by_category": categories
+        }
     except Exception as e:
-        results = e
+        data = {
+            "error": e.__repr__()     
+        }
 
-    return results
+    return data
 
 
-# absolute crime report count over two years
-@app.get("/count/all/{zip}/{cut}")
-def count_all(zip: int, cut: int):
-    start = time.time()
-    co = make_cutoff(cut)
-    path = make_path(zip, co, None)
-    response = httpx.get(path)
-    return response.json(), time.time() - start
+@app.get("/address/{addr}/{co}")
+async def count_within_radius(addr: str, co: int):
+    try:
+        data = {}
+        geolocator = Nominatim(user_agent="my_app")
+        loc = geolocator.geocode(addr)
+        if loc and hasattr(loc, "latitude") and hasattr(loc, "longitude"):
+            lat = loc.latitude
+            lon = loc.longitude
+
+            max_y = lat + (1 / 120)
+            min_y = lat - (1 / 120)
+            max_x = lon + (1 / 120)
+            min_x = lon - (1 / 120)
+
+            tail = f" AND latitude < {max_y} AND latitude > {min_y} AND longitude < {max_x} AND longitude > {min_x}"
+            cut = make_cutoff(co)
+            base = make_path(None, cut, quote(tail))
+
+            # generate dict of queries to launch with make_requests()
+            vq = filter_violent()
+            results = await make_requests(base, vq)
+            categories = {}
+            for res in results:
+                k, v = next(iter(res.items()))
+                categories[k] = v
+            data = {
+                "last_n_years": str(co),
+                "square_nautical_miles": "1",
+                "reported_violent_crime_count": str(sum([int(categories[k]) for k in categories])),
+                "by_category": categories
+            }
+    except Exception as e:
+        data = {
+            "error": e.__repr__()     
+        }
+        
+    return data
